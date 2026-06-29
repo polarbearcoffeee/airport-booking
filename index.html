@@ -3,33 +3,62 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>桃園機場接送・訂車系統</title>
+<title>桃園機場接送・訂車系統（多司機共用版）</title>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; }
   input, select, button, textarea { font-family: inherit; }
   #root { font-family: 'PingFang TC','Microsoft JhengHei',system-ui,sans-serif; }
-  .loading { padding: 60px; text-align: center; color: #64748b; font-family: system-ui; }
+  .loading { padding: 60px 20px; text-align: center; color: #64748b; font-family: system-ui; line-height: 1.8; }
 </style>
+
+<!-- ===================================================================
+     ① Firebase 設定：到 Firebase 主控台建立專案後，把你的設定貼進來
+        （把下面六行「貼上你的…」整段換成你複製到的 firebaseConfig）
+==================================================================== -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, addDoc, updateDoc, doc, onSnapshot, setDoc, query, orderBy }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAOHDCmnhV4djJnaVwhp1P3Ucand_DJ4M8",
+  authDomain: "airport-car.firebaseapp.com",
+  projectId: "airport-car",
+  storageBucket: "airport-car.firebasestorage.app",
+  messagingSenderId: "497915579586",
+  appId: "1:497915579586:web:c03ae3f86abfd5a01f7f5b"
+};
+
+try {
+  if (String(firebaseConfig.apiKey).indexOf("貼上") !== -1) {
+    window.fbError = "尚未填入 Firebase 設定";
+    window.dispatchEvent(new Event("fb-error"));
+  } else {
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    window.fb = { db, collection, addDoc, updateDoc, doc, onSnapshot, setDoc, query, orderBy };
+    window.dispatchEvent(new Event("fb-ready"));
+  }
+} catch (e) {
+  window.fbError = e.message;
+  window.dispatchEvent(new Event("fb-error"));
+}
+</script>
+<!-- =================================================================== -->
+
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.6/babel.min.js"></script>
 </head>
 <body>
-<div id="root"><div class="loading">載入中…</div></div>
+<div id="root"><div class="loading">連線中…</div></div>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useMemo } = React;
 
-/* ----------------------------------------------------------------
-   桃園機場接送 — 訂車系統（單檔 index.html 版）
-   價格 = 圖片價格 + 200（已內含於下表）
-   送機 = 基礎價；接機 = 基礎價 + 100；來回 = 送機 + 接機 − 100
-   資料儲存：瀏覽器 localStorage（單一裝置）
------------------------------------------------------------------- */
-
 const C = {
-  navy: "#1b2a4e", navy2: "#28395f", orange: "#e8821e", orangeBg: "#fdf1e3",
+  navy: "#1b2a4e", orange: "#e8821e", orangeBg: "#fdf1e3",
   sky: "#3f87c9", skyBg: "#eaf4fb", bg: "#f4f6fa", line: "#e3e8f0",
   green: "#2e9e5b", greenBg: "#e7f6ee", red: "#d64545", redBg: "#fcebeb",
   amber: "#d9961f", amberBg: "#fbf1dc", gray: "#64748b", ink: "#1f2937",
@@ -37,48 +66,37 @@ const C = {
 
 const PRICE_DATA = {
   "桃園市": [
-    { d: ["大園"], p: 600 },
-    { d: ["觀音", "中壢", "蘆竹", "桃園"], p: 700 },
-    { d: ["八德", "平鎮", "楊梅", "龜山"], p: 800 },
-    { d: ["新屋", "復興"], p: 900 },
-    { d: ["大溪"], p: 1000 },
-    { d: ["龍潭"], p: 1100 },
+    { d: ["大園"], p: 600 }, { d: ["觀音", "中壢", "蘆竹", "桃園"], p: 700 },
+    { d: ["八德", "平鎮", "楊梅", "龜山"], p: 800 }, { d: ["新屋", "復興"], p: 900 },
+    { d: ["大溪"], p: 1000 }, { d: ["龍潭"], p: 1100 },
   ],
   "新北市": [
-    { d: ["林口"], p: 800 },
-    { d: ["泰山", "三峽", "鶯歌"], p: 900 },
+    { d: ["林口"], p: 800 }, { d: ["泰山", "三峽", "鶯歌"], p: 900 },
     { d: ["新莊", "樹林", "五股", "土城", "板橋", "蘆洲", "三重", "八里"], p: 1000 },
-    { d: ["永和", "中和"], p: 1100 },
-    { d: ["汐止", "新店", "淡水"], p: 1200 },
-    { d: ["三芝", "深坑"], p: 1300 },
-    { d: ["石碇", "石門", "烏來"], p: 1400 },
+    { d: ["永和", "中和"], p: 1100 }, { d: ["汐止", "新店", "淡水"], p: 1200 },
+    { d: ["三芝", "深坑"], p: 1300 }, { d: ["石碇", "石門", "烏來"], p: 1400 },
     { d: ["金山", "平溪", "瑞芳", "坪林", "萬里"], p: 1500 },
-    { d: ["雙溪"], p: 1700 },
-    { d: ["貢寮"], p: 1800 },
+    { d: ["雙溪"], p: 1700 }, { d: ["貢寮"], p: 1800 },
   ],
   "台北市": [
     { d: ["中正", "大同", "中山", "松山", "大安", "萬華", "士林", "信義", "北投"], p: 1100 },
     { d: ["文山", "南港", "內湖"], p: 1200 },
   ],
   "基隆市": [
-    { d: ["暖暖", "七堵"], p: 1300 },
-    { d: ["仁愛", "安樂"], p: 1400 },
+    { d: ["暖暖", "七堵"], p: 1300 }, { d: ["仁愛", "安樂"], p: 1400 },
     { d: ["信義", "中正", "中山"], p: 1500 },
   ],
   "宜蘭縣": [
-    { d: ["頭城", "礁溪"], p: 2000 },
-    { d: ["宜蘭", "壯圍"], p: 2200 },
-    { d: ["員山", "羅東", "五結"], p: 2300 },
-    { d: ["三星", "冬山"], p: 2500 },
+    { d: ["頭城", "礁溪"], p: 2000 }, { d: ["宜蘭", "壯圍"], p: 2200 },
+    { d: ["員山", "羅東", "五結"], p: 2300 }, { d: ["三星", "冬山"], p: 2500 },
     { d: ["南澳", "大同", "蘇澳"], p: 2700 },
   ],
 };
 const CITIES = Object.keys(PRICE_DATA);
-const DRIVER_PIN = "1357";
+const DEFAULT_PIN = "1357";
 
 function basePriceFor(city, district) {
-  const groups = PRICE_DATA[city] || [];
-  for (const g of groups) if (g.d.includes(district)) return g.p;
+  for (const g of (PRICE_DATA[city] || [])) if (g.d.includes(district)) return g.p;
   return null;
 }
 function finalPrice(base, serviceType) {
@@ -98,57 +116,47 @@ const STATUS = {
   已取消: { c: C.red, bg: C.redBg, label: "已取消" },
 };
 
-/* ---------------------- localStorage 儲存 ---------------------- */
-const SKEY = "ty_airport_bookings";
-function loadRaw() {
-  try { return JSON.parse(localStorage.getItem(SKEY) || "[]"); } catch (e) { return []; }
+/* ---------------------- Firebase 資料層 ---------------------- */
+function subBookings(cb) {
+  const f = window.fb;
+  return f.onSnapshot(
+    f.query(f.collection(f.db, "bookings"), f.orderBy("createdAt", "desc")),
+    (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() })))
+  );
 }
-function saveRaw(arr) {
-  try { localStorage.setItem(SKEY, JSON.stringify(arr)); } catch (e) {}
+function subSettings(cb) {
+  const f = window.fb;
+  return f.onSnapshot(f.doc(f.db, "settings", "app"),
+    (s) => cb(s.exists() ? s.data() : { pin: DEFAULT_PIN }));
 }
-function loadAll() {
-  return loadRaw().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-}
-function addBooking(rec) { const a = loadRaw(); a.push(rec); saveRaw(a); }
-function patchBooking(id, patch) {
-  saveRaw(loadRaw().map((b) => (b.id === id ? { ...b, ...patch } : b)));
-}
+async function addBooking(rec) { const f = window.fb; await f.addDoc(f.collection(f.db, "bookings"), rec); }
+async function patchBooking(id, patch) { const f = window.fb; await f.updateDoc(f.doc(f.db, "bookings", id), patch); }
+async function savePin(p) { const f = window.fb; await f.setDoc(f.doc(f.db, "settings", "app"), { pin: p }, { merge: true }); }
 
 /* ---------------------- 小元件 ---------------------- */
 const Badge = ({ status }) => {
   const s = STATUS[status] || STATUS["待確認"];
-  return (
-    <span style={{ background: s.bg, color: s.c, fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 20, whiteSpace: "nowrap" }}>
-      {s.label}
-    </span>
-  );
+  return <span style={{ background: s.bg, color: s.c, fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 20, whiteSpace: "nowrap" }}>{s.label}</span>;
 };
 const Field = ({ label, children, req }) => (
   <label style={{ display: "block", marginBottom: 14 }}>
     <span style={{ display: "block", fontSize: 13, color: C.gray, marginBottom: 6, fontWeight: 600 }}>
       {label} {req && <span style={{ color: C.red }}>*</span>}
-    </span>
-    {children}
+    </span>{children}
   </label>
 );
-const inputStyle = {
-  width: "100%", padding: "10px 12px", border: "1px solid " + C.line,
-  borderRadius: 10, fontSize: 15, boxSizing: "border-box", background: "#fff", color: C.ink,
-};
+const inputStyle = { width: "100%", padding: "10px 12px", border: "1px solid " + C.line, borderRadius: 10, fontSize: 15, boxSizing: "border-box", background: "#fff", color: C.ink };
 const Btn = ({ children, color, ghost, onClick }) => (
-  <button onClick={onClick} style={{
-    padding: "9px 16px", borderRadius: 9, fontSize: 14, fontWeight: 700, cursor: "pointer",
-    border: ghost ? "1px solid " + color : "none",
-    background: ghost ? "#fff" : color, color: ghost ? color : "#fff",
-  }}>{children}</button>
+  <button onClick={onClick} style={{ padding: "9px 16px", borderRadius: 9, fontSize: 14, fontWeight: 700, cursor: "pointer", border: ghost ? "1px solid " + color : "none", background: ghost ? "#fff" : color, color: ghost ? color : "#fff" }}>{children}</button>
 );
 const Empty = () => <p style={{ color: C.gray, fontSize: 14, textAlign: "center", padding: 24 }}>尚無資料</p>;
 
 /* ======================== 訂車表單 ======================== */
-function BookingForm({ onBooked }) {
+function BookingForm() {
   const blank = { name: "", phone: "", serviceType: "送機", city: "桃園市", district: "", when: "", flight: "", addr: "", pax: "1", note: "" };
   const [form, setForm] = useState(blank);
   const [done, setDone] = useState(null);
+  const [busy, setBusy] = useState(false);
 
   const districts = useMemo(() => {
     const set = [];
@@ -161,13 +169,13 @@ function BookingForm({ onBooked }) {
   const ok = form.name && form.phone && form.district && form.when && price != null;
   const set = (k, v) => setForm((f) => { const n = { ...f, [k]: v }; if (k === "city") n.district = ""; return n; });
 
-  const submit = () => {
-    if (!ok) return;
-    const id = "bk_" + Date.now() + Math.random().toString(36).slice(2, 6);
-    const rec = { id, ...form, base, price, status: "待確認", createdAt: Date.now() };
-    addBooking(rec);
-    setDone(rec);
-    onBooked && onBooked();
+  const submit = async () => {
+    if (!ok || busy) return;
+    setBusy(true);
+    const rec = { ...form, base, price, status: "待確認", createdAt: Date.now() };
+    try { await addBooking(rec); setDone({ ...rec }); }
+    catch (e) { alert("送出失敗，請檢查網路或稍後再試。"); }
+    setBusy(false);
   };
 
   if (done) {
@@ -184,10 +192,7 @@ function BookingForm({ onBooked }) {
           <div style={{ marginTop: 8, fontSize: 18, color: C.orange, fontWeight: 700 }}>應付車資：{NT(done.price)}</div>
         </div>
         <p style={{ fontSize: 12, color: C.gray, marginTop: 14 }}>請記下您的電話，可至「查詢訂單」追蹤司機狀態。</p>
-        <button onClick={() => { setDone(null); setForm(blank); }}
-          style={{ marginTop: 16, padding: "11px 26px", background: C.navy, color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>
-          再預約一筆
-        </button>
+        <button onClick={() => { setDone(null); setForm(blank); }} style={{ marginTop: 16, padding: "11px 26px", background: C.navy, color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: "pointer" }}>再預約一筆</button>
       </div>
     );
   }
@@ -196,13 +201,7 @@ function BookingForm({ onBooked }) {
     <div style={{ background: "#fff", borderRadius: 16, padding: 24, border: "1px solid " + C.line }}>
       <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
         {["送機", "接機", "來回"].map((t) => (
-          <button key={t} onClick={() => set("serviceType", t)}
-            style={{
-              flex: 1, padding: "12px 0", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer",
-              border: form.serviceType === t ? "2px solid " + C.orange : "1px solid " + C.line,
-              background: form.serviceType === t ? C.orangeBg : "#fff",
-              color: form.serviceType === t ? C.orange : C.gray,
-            }}>{t}</button>
+          <button key={t} onClick={() => set("serviceType", t)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer", border: form.serviceType === t ? "2px solid " + C.orange : "1px solid " + C.line, background: form.serviceType === t ? C.orangeBg : "#fff", color: form.serviceType === t ? C.orange : C.gray }}>{t}</button>
         ))}
       </div>
       <div style={{ fontSize: 12, color: C.gray, marginBottom: 18, background: C.skyBg, padding: "8px 12px", borderRadius: 8 }}>
@@ -216,50 +215,27 @@ function BookingForm({ onBooked }) {
         <Field label="聯絡電話" req><input style={inputStyle} value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="0912-345-678" /></Field>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Field label="縣市" req>
-          <select style={inputStyle} value={form.city} onChange={(e) => set("city", e.target.value)}>
-            {CITIES.map((c) => <option key={c}>{c}</option>)}
-          </select>
-        </Field>
-        <Field label="地區" req>
-          <select style={inputStyle} value={form.district} onChange={(e) => set("district", e.target.value)}>
-            <option value="">請選擇地區</option>
-            {districts.map((d) => <option key={d}>{d}</option>)}
-          </select>
-        </Field>
+        <Field label="縣市" req><select style={inputStyle} value={form.city} onChange={(e) => set("city", e.target.value)}>{CITIES.map((c) => <option key={c}>{c}</option>)}</select></Field>
+        <Field label="地區" req><select style={inputStyle} value={form.district} onChange={(e) => set("district", e.target.value)}><option value="">請選擇地區</option>{districts.map((d) => <option key={d}>{d}</option>)}</select></Field>
       </div>
-      <Field label={form.serviceType === "送機" ? "上車地址" : "下車地址"}>
-        <input style={inputStyle} value={form.addr} onChange={(e) => set("addr", e.target.value)} placeholder="詳細地址（選填）" />
-      </Field>
+      <Field label={form.serviceType === "送機" ? "上車地址" : "下車地址"}><input style={inputStyle} value={form.addr} onChange={(e) => set("addr", e.target.value)} placeholder="詳細地址（選填）" /></Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <Field label="搭乘時間" req><input type="datetime-local" style={inputStyle} value={form.when} onChange={(e) => set("when", e.target.value)} /></Field>
         <Field label="航班編號"><input style={inputStyle} value={form.flight} onChange={(e) => set("flight", e.target.value)} placeholder="如 BR225（選填）" /></Field>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Field label="乘客人數">
-          <select style={inputStyle} value={form.pax} onChange={(e) => set("pax", e.target.value)}>
-            {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n} 人</option>)}
-          </select>
-        </Field>
+        <Field label="乘客人數"><select style={inputStyle} value={form.pax} onChange={(e) => set("pax", e.target.value)}>{[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n} 人</option>)}</select></Field>
         <Field label="備註"><input style={inputStyle} value={form.note} onChange={(e) => set("note", e.target.value)} placeholder="行李 / 兒童座椅…" /></Field>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8, padding: "16px 18px", background: C.navy, borderRadius: 12 }}>
         <div>
           <div style={{ fontSize: 12, color: "#aab8d4" }}>預估車資（舒適五人座）</div>
-          <div style={{ fontSize: 26, fontWeight: 800, color: "#fff", letterSpacing: 0.5 }}>
-            {price != null ? NT(price) : "請選擇地區"}
-          </div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: "#fff", letterSpacing: 0.5 }}>{price != null ? NT(price) : "請選擇地區"}</div>
         </div>
-        <button onClick={submit} disabled={!ok}
-          style={{
-            padding: "13px 28px", background: ok ? C.orange : "#5a6788", color: "#fff", border: "none",
-            borderRadius: 10, fontSize: 16, fontWeight: 700, cursor: ok ? "pointer" : "not-allowed",
-          }}>確認預約</button>
+        <button onClick={submit} disabled={!ok || busy} style={{ padding: "13px 28px", background: ok ? C.orange : "#5a6788", color: "#fff", border: "none", borderRadius: 10, fontSize: 16, fontWeight: 700, cursor: ok ? "pointer" : "not-allowed" }}>{busy ? "送出中…" : "確認預約"}</button>
       </div>
-      <p style={{ fontSize: 11, color: C.gray, marginTop: 10, textAlign: "center" }}>
-        ※ 報價皆為舒適五人座，其他車型或區域請洽客服 LINE：@car178
-      </p>
+      <p style={{ fontSize: 11, color: C.gray, marginTop: 10, textAlign: "center" }}>※ 報價皆為舒適五人座，其他車型或區域請洽客服 LINE：@car178</p>
     </div>
   );
 }
@@ -271,24 +247,16 @@ function Lookup({ all }) {
   const found = phone.length >= 4 ? all.filter((b) => dig(b.phone) === dig(phone)) : [];
   return (
     <div style={{ background: "#fff", borderRadius: 16, padding: 24, border: "1px solid " + C.line }}>
-      <Field label="輸入您預約時的電話">
-        <input style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0912-345-678" />
-      </Field>
-      {phone.length >= 4 && found.length === 0 && (
-        <p style={{ color: C.gray, fontSize: 14, textAlign: "center", padding: 20 }}>查無此電話的訂單。</p>
-      )}
+      <Field label="輸入您預約時的電話"><input style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0912-345-678" /></Field>
+      {phone.length >= 4 && found.length === 0 && <p style={{ color: C.gray, fontSize: 14, textAlign: "center", padding: 20 }}>查無此電話的訂單。</p>}
       {found.map((b) => {
         const s = STATUS[b.status];
         return (
           <div key={b.id} style={{ border: "1px solid " + C.line, borderLeft: "4px solid " + s.c, borderRadius: 10, padding: 16, marginBottom: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <b style={{ color: C.navy }}>{b.serviceType}・桃園機場 ⇄ {b.city}{b.district}</b>
-              <Badge status={b.status} />
+              <b style={{ color: C.navy }}>{b.serviceType}・桃園機場 ⇄ {b.city}{b.district}</b><Badge status={b.status} />
             </div>
-            <div style={{ fontSize: 14, color: C.gray, lineHeight: 1.8 }}>
-              時間：{b.when.replace("T", " ")}<br />
-              車資：<b style={{ color: C.orange }}>{NT(b.price)}</b>
-            </div>
+            <div style={{ fontSize: 14, color: C.gray, lineHeight: 1.8 }}>時間：{b.when.replace("T", " ")}<br />車資：<b style={{ color: C.orange }}>{NT(b.price)}</b></div>
             {b.status === "前往中" && <div style={{ marginTop: 8, background: C.orangeBg, color: C.orange, padding: "8px 12px", borderRadius: 8, fontSize: 14, fontWeight: 600 }}>🚗 司機已出發，正在前往中！</div>}
             {b.status === "已確認" && <div style={{ marginTop: 8, background: C.skyBg, color: C.sky, padding: "8px 12px", borderRadius: 8, fontSize: 14, fontWeight: 600 }}>✅ 司機已接單，請準時等候</div>}
           </div>
@@ -298,10 +266,43 @@ function Lookup({ all }) {
   );
 }
 
+/* ======================== 後台設定（改 PIN） ======================== */
+function PinSetting({ currentPin }) {
+  const [open, setOpen] = useState(false);
+  const [a, setA] = useState(""); const [b, setB] = useState("");
+  const [msg, setMsg] = useState(null); const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (a.length < 3) return setMsg(["err", "新密碼至少 3 碼"]);
+    if (a !== b) return setMsg(["err", "兩次輸入不一致"]);
+    setBusy(true);
+    try { await savePin(a); setMsg(["ok", "密碼已更新，所有司機共用此新密碼"]); setA(""); setB(""); }
+    catch (e) { setMsg(["err", "更新失敗，請檢查網路"]); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 12, marginBottom: 16, overflow: "hidden" }}>
+      <button onClick={() => setOpen(!open)} style={{ width: "100%", textAlign: "left", padding: "12px 16px", background: "#fff", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700, color: C.navy, display: "flex", justifyContent: "space-between" }}>
+        <span>⚙️ 後台設定 ・ 變更登入密碼</span><span style={{ color: C.gray }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "4px 16px 18px" }}>
+          <p style={{ fontSize: 13, color: C.gray, margin: "0 0 12px" }}>目前密碼：<b style={{ color: C.ink }}>{currentPin}</b>（所有司機共用同一組）</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="新密碼"><input type="text" style={inputStyle} value={a} onChange={(e) => setA(e.target.value)} placeholder="至少 3 碼" /></Field>
+            <Field label="再次輸入"><input type="text" style={inputStyle} value={b} onChange={(e) => setB(e.target.value)} placeholder="再輸入一次" /></Field>
+          </div>
+          {msg && <p style={{ fontSize: 13, color: msg[0] === "ok" ? C.green : C.red, margin: "0 0 10px" }}>{msg[1]}</p>}
+          <Btn color={C.navy} onClick={busy ? () => {} : save}>{busy ? "儲存中…" : "更新密碼"}</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ======================== 司機後台 ======================== */
-function Driver({ all, reload }) {
+function Driver({ all, currentPin }) {
   const [filter, setFilter] = useState("全部");
-  const update = (b, status) => { patchBooking(b.id, { status }); reload(); };
+  const update = (b, status) => { patchBooking(b.id, { status }).catch(() => alert("更新失敗")); };
   const counts = useMemo(() => {
     const c = { 全部: all.length, 待確認: 0, 已確認: 0, 前往中: 0, 已完成: 0, 已取消: 0 };
     all.forEach((b) => { c[b.status] = (c[b.status] || 0) + 1; });
@@ -311,22 +312,14 @@ function Driver({ all, reload }) {
 
   return (
     <div>
+      <PinSetting currentPin={currentPin} />
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         {["全部", "待確認", "已確認", "前往中", "已完成", "已取消"].map((f) => (
-          <button key={f} onClick={() => setFilter(f)}
-            style={{
-              padding: "7px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: "pointer",
-              border: filter === f ? "1px solid " + C.navy : "1px solid " + C.line,
-              background: filter === f ? C.navy : "#fff", color: filter === f ? "#fff" : C.gray,
-            }}>{f} {counts[f] || 0}</button>
+          <button key={f} onClick={() => setFilter(f)} style={{ padding: "7px 14px", borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: "pointer", border: filter === f ? "1px solid " + C.navy : "1px solid " + C.line, background: filter === f ? C.navy : "#fff", color: filter === f ? "#fff" : C.gray }}>{f} {counts[f] || 0}</button>
         ))}
       </div>
 
-      {list.length === 0 && (
-        <div style={{ background: "#fff", borderRadius: 14, padding: 40, textAlign: "center", color: C.gray, border: "1px solid " + C.line }}>
-          目前沒有「{filter}」的行程。
-        </div>
-      )}
+      {list.length === 0 && <div style={{ background: "#fff", borderRadius: 14, padding: 40, textAlign: "center", color: C.gray, border: "1px solid " + C.line }}>目前沒有「{filter}」的行程。</div>}
 
       {list.map((b) => {
         const s = STATUS[b.status];
@@ -336,10 +329,8 @@ function Driver({ all, reload }) {
               <div>
                 <div style={{ fontSize: 17, fontWeight: 700, color: C.navy }}>{b.serviceType}　{b.name}</div>
                 <a href={"tel:" + b.phone} style={{ fontSize: 14, color: C.sky, textDecoration: "none" }}>📞 {b.phone}</a>
-              </div>
-              <Badge status={b.status} />
+              </div><Badge status={b.status} />
             </div>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 16px", fontSize: 14, color: C.ink, background: C.bg, borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
               <div>🗺️ 桃園機場 ⇄ <b>{b.city}{b.district}</b></div>
               <div>🕐 {b.when.replace("T", " ")}</div>
@@ -348,11 +339,8 @@ function Driver({ all, reload }) {
               <div>👤 {b.pax} 人</div>
               {b.note && <div>📝 {b.note}</div>}
             </div>
-
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-              <div style={{ fontSize: 13, color: C.gray }}>
-                應收車資 <span style={{ fontSize: 22, fontWeight: 800, color: C.orange, marginLeft: 4 }}>{NT(b.price)}</span>
-              </div>
+              <div style={{ fontSize: 13, color: C.gray }}>應收車資 <span style={{ fontSize: 22, fontWeight: 800, color: C.orange, marginLeft: 4 }}>{NT(b.price)}</span></div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {b.status === "待確認" && (<>
                   <Btn color={C.green} onClick={() => update(b, "已確認")}>✓ 確認接單</Btn>
@@ -367,9 +355,7 @@ function Driver({ all, reload }) {
                   <Btn color={C.green} onClick={() => update(b, "已完成")}>✓ 行程完成</Btn>
                   <Btn color={C.red} ghost onClick={() => update(b, "已取消")}>取消</Btn>
                 </>)}
-                {(b.status === "已完成" || b.status === "已取消") && (
-                  <Btn color={C.gray} ghost onClick={() => update(b, "待確認")}>↩ 重新開啟</Btn>
-                )}
+                {(b.status === "已完成" || b.status === "已取消") && <Btn color={C.gray} ghost onClick={() => update(b, "待確認")}>↩ 重新開啟</Btn>}
               </div>
             </div>
           </div>
@@ -382,45 +368,34 @@ function Driver({ all, reload }) {
 /* ======================== 統計報表 ======================== */
 function Donut({ data, colors }) {
   const total = data.reduce((s, d) => s + d.value, 0) || 1;
-  const R = 40, CIRC = 2 * Math.PI * R;
-  let acc = 0;
+  const R = 40, CIRC = 2 * Math.PI * R; let acc = 0;
   return (
     <svg width="160" height="160" viewBox="0 0 160 160">
       <g transform="rotate(-90 80 80)">
         {data.map((d, i) => {
           const len = (d.value / total) * CIRC;
-          const seg = (
-            <circle key={i} cx="80" cy="80" r={R} fill="none" stroke={colors[i % colors.length]}
-              strokeWidth="22" strokeDasharray={len + " " + (CIRC - len)} strokeDashoffset={-acc} />
-          );
-          acc += len;
-          return seg;
+          const seg = <circle key={i} cx="80" cy="80" r={R} fill="none" stroke={colors[i % colors.length]} strokeWidth="22" strokeDasharray={len + " " + (CIRC - len)} strokeDashoffset={-acc} />;
+          acc += len; return seg;
         })}
       </g>
     </svg>
   );
 }
-
 function Stats({ all }) {
   const active = all.filter((b) => b.status !== "已取消");
   const earned = all.filter((b) => b.status === "已完成").reduce((s, b) => s + b.price, 0);
   const pending = active.filter((b) => b.status !== "已完成").reduce((s, b) => s + b.price, 0);
   const today = new Date().toISOString().slice(0, 10);
   const todayTrips = all.filter((b) => (b.when || "").slice(0, 10) === today && b.status !== "已取消");
-
   const byCity = useMemo(() => {
-    const m = {};
-    active.forEach((b) => { m[b.city] = (m[b.city] || 0) + b.price; });
+    const m = {}; active.forEach((b) => { m[b.city] = (m[b.city] || 0) + b.price; });
     return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   }, [all]);
   const maxCity = Math.max(1, ...byCity.map((x) => x.value));
-
   const byType = useMemo(() => {
-    const m = { 送機: 0, 接機: 0, 來回: 0 };
-    active.forEach((b) => { m[b.serviceType] = (m[b.serviceType] || 0) + 1; });
+    const m = { 送機: 0, 接機: 0, 來回: 0 }; active.forEach((b) => { m[b.serviceType] = (m[b.serviceType] || 0) + 1; });
     return Object.entries(m).map(([name, value]) => ({ name, value })).filter((x) => x.value > 0);
   }, [all]);
-
   const PIE = [C.orange, C.sky, C.green];
   const metrics = [
     { label: "總行程數", v: all.length, c: C.navy },
@@ -428,29 +403,23 @@ function Stats({ all }) {
     { label: "進行中 / 待辦", v: active.filter((b) => b.status !== "已完成").length, c: C.amber },
     { label: "今日行程", v: todayTrips.length, c: C.sky },
   ];
-
   return (
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
         <div style={{ background: C.navy, borderRadius: 14, padding: "18px 20px", color: "#fff" }}>
-          <div style={{ fontSize: 13, color: "#aab8d4" }}>已完成營收</div>
-          <div style={{ fontSize: 30, fontWeight: 800 }}>{NT(earned)}</div>
+          <div style={{ fontSize: 13, color: "#aab8d4" }}>已完成營收</div><div style={{ fontSize: 30, fontWeight: 800 }}>{NT(earned)}</div>
         </div>
         <div style={{ background: C.orange, borderRadius: 14, padding: "18px 20px", color: "#fff" }}>
-          <div style={{ fontSize: 13, color: "#ffe6c9" }}>預計待收（含進行中）</div>
-          <div style={{ fontSize: 30, fontWeight: 800 }}>{NT(pending)}</div>
+          <div style={{ fontSize: 13, color: "#ffe6c9" }}>預計待收（含進行中）</div><div style={{ fontSize: 30, fontWeight: 800 }}>{NT(pending)}</div>
         </div>
       </div>
-
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
         {metrics.map((m) => (
           <div key={m.label} style={{ background: "#fff", borderRadius: 12, padding: "14px 8px", border: "1px solid " + C.line, textAlign: "center" }}>
-            <div style={{ fontSize: 26, fontWeight: 800, color: m.c }}>{m.v}</div>
-            <div style={{ fontSize: 12, color: C.gray, marginTop: 2 }}>{m.label}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: m.c }}>{m.v}</div><div style={{ fontSize: 12, color: C.gray, marginTop: 2 }}>{m.label}</div>
           </div>
         ))}
       </div>
-
       <div style={{ background: "#fff", borderRadius: 14, padding: 18, border: "1px solid " + C.line, marginBottom: 16 }}>
         <h4 style={{ margin: "0 0 14px", color: C.navy, fontSize: 15 }}>各區域營收（不含已取消）</h4>
         {byCity.length === 0 ? <Empty /> : byCity.map((c) => (
@@ -463,20 +432,16 @@ function Stats({ all }) {
           </div>
         ))}
       </div>
-
       <div style={{ background: "#fff", borderRadius: 14, padding: 18, border: "1px solid " + C.line }}>
         <h4 style={{ margin: "0 0 12px", color: C.navy, fontSize: 15 }}>服務類型佔比</h4>
         {byType.length === 0 ? <Empty /> : (
           <div style={{ display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" }}>
             <Donut data={byType} colors={PIE} />
-            <div>
-              {byType.map((e, i) => (
-                <div key={e.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 14 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: PIE[i % 3], display: "inline-block" }} />
-                  <b>{e.name}</b>　{e.value} 筆
-                </div>
-              ))}
-            </div>
+            <div>{byType.map((e, i) => (
+              <div key={e.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 14 }}>
+                <span style={{ width: 12, height: 12, borderRadius: 3, background: PIE[i % 3], display: "inline-block" }} /><b>{e.name}</b>　{e.value} 筆
+              </div>
+            ))}</div>
           </div>
         )}
       </div>
@@ -488,21 +453,54 @@ function Stats({ all }) {
 function App() {
   const [tab, setTab] = useState("book");
   const [all, setAll] = useState([]);
+  const [settings, setSettings] = useState({ pin: DEFAULT_PIN });
+  const [ready, setReady] = useState(!!window.fb);
+  const [err, setErr] = useState(window.fbError || null);
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState("");
   const [pinErr, setPinErr] = useState(false);
 
-  const reload = () => setAll(loadAll());
-  useEffect(() => { reload(); }, []);
-  useEffect(() => { if (tab === "driver" || tab === "stats") reload(); }, [tab]);
+  useEffect(() => {
+    if (window.fb) { setReady(true); return; }
+    const r = () => setReady(true);
+    const e = () => setErr(window.fbError || "連線失敗");
+    window.addEventListener("fb-ready", r);
+    window.addEventListener("fb-error", e);
+    return () => { window.removeEventListener("fb-ready", r); window.removeEventListener("fb-error", e); };
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const u1 = subBookings(setAll);
+    const u2 = subSettings(setSettings);
+    return () => { u1 && u1(); u2 && u2(); };
+  }, [ready]);
+
+  const currentPin = settings.pin || DEFAULT_PIN;
+  const tryUnlock = () => { if (pin === currentPin) { setUnlocked(true); setPinErr(false); } else setPinErr(true); };
 
   const TABS = [
-    { k: "book", t: "🚖 乘客訂車" },
-    { k: "lookup", t: "🔍 查詢訂單" },
-    { k: "driver", t: "🧑‍✈️ 司機後台" },
-    { k: "stats", t: "📊 統計報表" },
+    { k: "book", t: "🚖 乘客訂車" }, { k: "lookup", t: "🔍 查詢訂單" },
+    { k: "driver", t: "🧑‍✈️ 司機後台" }, { k: "stats", t: "📊 統計報表" },
   ];
-  const tryUnlock = () => { if (pin === DRIVER_PIN) { setUnlocked(true); setPinErr(false); } else setPinErr(true); };
+
+  if (err) {
+    return (
+      <div style={{ background: C.bg, minHeight: "100vh" }}>
+        <div style={{ maxWidth: 620, margin: "0 auto", padding: "60px 20px" }}>
+          <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: 28 }}>
+            <h2 style={{ color: C.navy, marginTop: 0 }}>⚠️ 尚未連上資料庫</h2>
+            <p style={{ color: C.ink, fontSize: 15, lineHeight: 1.9 }}>
+              系統需要連到 Firebase 才能多司機共用。請打開 <b>index.html</b>，找到最上方的
+              <code style={{ background: C.bg, padding: "2px 6px", borderRadius: 4 }}>firebaseConfig</code>
+              區塊，把「貼上你的…」六行換成你自己的 Firebase 設定，再重新上傳即可。
+            </p>
+            <p style={{ color: C.gray, fontSize: 13 }}>錯誤訊息：{String(err)}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: C.bg, minHeight: "100vh", color: C.ink }}>
@@ -511,39 +509,31 @@ function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ background: C.orange, color: "#fff", fontWeight: 800, padding: "4px 10px", borderRadius: 8, fontSize: 14 }}>✈ TAOYUAN</span>
             <h1 style={{ color: "#fff", fontSize: 22, margin: 0, fontWeight: 800 }}>桃園機場接送・訂車系統</h1>
+            <span style={{ fontSize: 11, color: ready ? "#7fd6a0" : "#ffcf8a", border: "1px solid", borderColor: ready ? "#3a6b50" : "#7a5a2a", padding: "2px 8px", borderRadius: 20 }}>{ready ? "● 已連線" : "○ 連線中"}</span>
           </div>
-          <p style={{ color: "#aab8d4", fontSize: 13, margin: "6px 0 16px" }}>LINE 客服：@car178　｜　舒適五人座專業接送</p>
+          <p style={{ color: "#aab8d4", fontSize: 13, margin: "6px 0 16px" }}>LINE 客服：@car178　｜　多司機即時共用</p>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             {TABS.map((x) => (
-              <button key={x.k} onClick={() => setTab(x.k)}
-                style={{
-                  padding: "11px 14px", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700,
-                  borderRadius: "10px 10px 0 0",
-                  background: tab === x.k ? C.bg : "transparent",
-                  color: tab === x.k ? C.navy : "#cdd6e8",
-                }}>{x.t}</button>
+              <button key={x.k} onClick={() => setTab(x.k)} style={{ padding: "11px 14px", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700, borderRadius: "10px 10px 0 0", background: tab === x.k ? C.bg : "transparent", color: tab === x.k ? C.navy : "#cdd6e8" }}>{x.t}</button>
             ))}
           </div>
         </div>
       </div>
 
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "22px 18px 60px" }}>
-        {tab === "book" && <BookingForm onBooked={reload} />}
+        {tab === "book" && <BookingForm />}
         {tab === "lookup" && <Lookup all={all} />}
-
         {(tab === "driver" || tab === "stats") && !unlocked && (
           <div style={{ background: "#fff", borderRadius: 16, padding: 32, border: "1px solid " + C.line, maxWidth: 360, margin: "20px auto", textAlign: "center" }}>
             <div style={{ fontSize: 34, marginBottom: 6 }}>🔒</div>
             <h3 style={{ margin: "0 0 4px", color: C.navy }}>司機後台</h3>
-            <p style={{ color: C.gray, fontSize: 13, margin: "0 0 18px" }}>請輸入司機密碼進入</p>
-            <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && tryUnlock()}
-              placeholder="預設密碼 1357" style={{ ...inputStyle, textAlign: "center", letterSpacing: 4, fontSize: 18 }} />
+            <p style={{ color: C.gray, fontSize: 13, margin: "0 0 18px" }}>請輸入司機共用密碼</p>
+            <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && tryUnlock()} placeholder="司機密碼" style={{ ...inputStyle, textAlign: "center", letterSpacing: 4, fontSize: 18 }} />
             {pinErr && <p style={{ color: C.red, fontSize: 13, margin: "8px 0 0" }}>密碼錯誤，請再試一次</p>}
             <button onClick={tryUnlock} style={{ marginTop: 14, width: "100%", padding: 12, background: C.navy, color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer" }}>進入後台</button>
           </div>
         )}
-
-        {tab === "driver" && unlocked && <Driver all={all} reload={reload} />}
+        {tab === "driver" && unlocked && <Driver all={all} currentPin={currentPin} />}
         {tab === "stats" && unlocked && <Stats all={all} />}
       </div>
     </div>
