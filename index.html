@@ -107,6 +107,9 @@ function finalPrice(base, serviceType) {
   return base;
 }
 const NT = (n) => "NT$ " + Number(n).toLocaleString("en-US");
+const _p2 = (n) => String(n).padStart(2, "0");
+const fmtDate = (ts) => { if (!ts) return "—"; const d = new Date(ts); return d.getFullYear() + "/" + _p2(d.getMonth() + 1) + "/" + _p2(d.getDate()); };
+const fmtTime = (ts) => { if (!ts) return "—"; const d = new Date(ts); return fmtDate(ts) + " " + _p2(d.getHours()) + ":" + _p2(d.getMinutes()); };
 
 const STATUS = {
   待確認: { c: C.amber, bg: C.amberBg, label: "待確認" },
@@ -132,6 +135,15 @@ function subSettings(cb) {
 async function addBooking(rec) { const f = window.fb; await f.addDoc(f.collection(f.db, "bookings"), rec); }
 async function patchBooking(id, patch) { const f = window.fb; await f.updateDoc(f.doc(f.db, "bookings", id), patch); }
 async function savePin(p) { const f = window.fb; await f.setDoc(f.doc(f.db, "settings", "app"), { pin: p }, { merge: true }); }
+function subCloseouts(cb) {
+  const f = window.fb;
+  return f.onSnapshot(
+    f.query(f.collection(f.db, "closeouts"), f.orderBy("closedAt", "desc")),
+    (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() })))
+  );
+}
+async function addCloseout(rec) { const f = window.fb; const ref = await f.addDoc(f.collection(f.db, "closeouts"), rec); return ref.id; }
+async function saveShift(openAt) { const f = window.fb; await f.setDoc(f.doc(f.db, "settings", "app"), { shiftOpenAt: openAt }, { merge: true }); }
 
 /* ---------------------- 小元件 ---------------------- */
 const Badge = ({ status }) => {
@@ -302,7 +314,11 @@ function PinSetting({ currentPin }) {
 /* ======================== 司機後台 ======================== */
 function Driver({ all, currentPin }) {
   const [filter, setFilter] = useState("全部");
-  const update = (b, status) => { patchBooking(b.id, { status }).catch(() => alert("更新失敗")); };
+  const update = (b, status) => {
+    const patch = { status };
+    if (status === "已完成" && !b.completedAt) patch.completedAt = Date.now();
+    patchBooking(b.id, patch).catch(() => alert("更新失敗"));
+  };
   const counts = useMemo(() => {
     const c = { 全部: all.length, 待確認: 0, 已確認: 0, 前往中: 0, 已完成: 0, 已取消: 0 };
     all.forEach((b) => { c[b.status] = (c[b.status] || 0) + 1; });
@@ -381,30 +397,133 @@ function Donut({ data, colors }) {
     </svg>
   );
 }
-function Stats({ all }) {
-  const active = all.filter((b) => b.status !== "已取消");
-  const earned = all.filter((b) => b.status === "已完成").reduce((s, b) => s + b.price, 0);
+function CloseoutCard({ co }) {
+  const [open, setOpen] = useState(false);
+  const cityRows = Object.entries(co.byCity || {}).sort((a, b) => b[1] - a[1]);
+  const typeRows = Object.entries(co.byType || {});
+  return (
+    <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 12, marginBottom: 12, overflow: "hidden" }}>
+      <button onClick={() => setOpen(!open)} style={{ width: "100%", textAlign: "left", padding: "14px 16px", background: "#fff", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: C.navy }}>📅 {fmtDate(co.closedAt)} ・ 整日結算報表</div>
+          <div style={{ fontSize: 12, color: C.gray, marginTop: 3 }}>關帳時間 {fmtTime(co.closedAt)}　·　共 {co.count} 筆</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: C.orange }}>{NT(co.revenue)}</div>
+          <div style={{ fontSize: 12, color: C.gray }}>{open ? "收合 ▲" : "展開細項 ▼"}</div>
+        </div>
+      </button>
+      {open && (
+        <div style={{ padding: "14px 16px 16px", borderTop: "1px solid " + C.line, background: "#fcfdff" }}>
+          <div style={{ fontSize: 12.5, color: C.gray, marginBottom: 12 }}>營業時段：{fmtTime(co.openedAt)} ～ {fmtTime(co.closedAt)}</div>
+          {(cityRows.length > 0 || typeRows.length > 0) && (
+            <div style={{ background: C.bg, borderRadius: 10, padding: "10px 12px", marginBottom: 14, fontSize: 13, lineHeight: 2 }}>
+              {cityRows.length > 0 && <div>🗺️ 區域：{cityRows.map(([k, v]) => k + " " + NT(v)).join("　·　")}</div>}
+              {typeRows.length > 0 && <div>🚖 類型：{typeRows.map(([k, v]) => k + " " + v + " 筆").join("　·　")}</div>}
+            </div>
+          )}
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.navy, margin: "0 0 8px" }}>每張訂單細項（{(co.trips || []).length} 筆）</div>
+          {(co.trips || []).map((t, i) => (
+            <div key={t.id || i} style={{ border: "1px solid " + C.line, borderRadius: 10, padding: "10px 12px", marginBottom: 8, background: "#fff" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <b style={{ color: C.navy, fontSize: 14 }}>{t.serviceType}・{t.name}</b>
+                <b style={{ color: C.orange }}>{NT(t.price)}</b>
+              </div>
+              <div style={{ fontSize: 12.5, color: C.gray, lineHeight: 1.8 }}>
+                🗺️ 桃園機場 ⇄ {t.city}{t.district}　🕐 {(t.when || "").replace("T", " ")}<br />
+                📞 {t.phone}　👤 {t.pax} 人{t.flight ? "　✈️ " + t.flight : ""}
+                {t.addr ? <span><br />📍 {t.addr}</span> : null}
+                {t.note ? <span><br />📝 {t.note}</span> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+function Stats({ all, closeouts, shiftOpenAt }) {
+  const [busy, setBusy] = useState(false);
+  const isOpen = !!shiftOpenAt;
+  const pool = useMemo(() => all.filter((b) => !b.settledIn), [all]);
+  const active = pool.filter((b) => b.status !== "已取消");
+  const completed = pool.filter((b) => b.status === "已完成");
+  const earned = completed.reduce((s, b) => s + b.price, 0);
   const pending = active.filter((b) => b.status !== "已完成").reduce((s, b) => s + b.price, 0);
   const today = new Date().toISOString().slice(0, 10);
-  const todayTrips = all.filter((b) => (b.when || "").slice(0, 10) === today && b.status !== "已取消");
+  const todayTrips = pool.filter((b) => (b.when || "").slice(0, 10) === today && b.status !== "已取消");
   const byCity = useMemo(() => {
     const m = {}; active.forEach((b) => { m[b.city] = (m[b.city] || 0) + b.price; });
     return Object.entries(m).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [all]);
+  }, [pool]);
   const maxCity = Math.max(1, ...byCity.map((x) => x.value));
   const byType = useMemo(() => {
     const m = { 送機: 0, 接機: 0, 來回: 0 }; active.forEach((b) => { m[b.serviceType] = (m[b.serviceType] || 0) + 1; });
     return Object.entries(m).map(([name, value]) => ({ name, value })).filter((x) => x.value > 0);
-  }, [all]);
+  }, [pool]);
   const PIE = [C.orange, C.sky, C.green];
   const metrics = [
-    { label: "總行程數", v: all.length, c: C.navy },
-    { label: "已完成", v: all.filter((b) => b.status === "已完成").length, c: C.green },
+    { label: "本班行程", v: active.length, c: C.navy },
+    { label: "已完成", v: completed.length, c: C.green },
     { label: "進行中 / 待辦", v: active.filter((b) => b.status !== "已完成").length, c: C.amber },
     { label: "今日行程", v: todayTrips.length, c: C.sky },
   ];
+
+  const openShift = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await saveShift(Date.now()); } catch (e) { alert("開帳失敗，請檢查網路。"); }
+    setBusy(false);
+  };
+  const closeShift = async () => {
+    if (busy) return;
+    if (completed.length === 0) {
+      if (!window.confirm("本班沒有已完成的行程，仍要關帳嗎？（不會產生日結報表）")) return;
+      setBusy(true);
+      try { await saveShift(null); } catch (e) { alert("關帳失敗，請檢查網路。"); }
+      setBusy(false);
+      return;
+    }
+    if (!window.confirm("確定要關帳結算嗎？\n將結算 " + completed.length + " 筆已完成行程，營收 " + NT(earned) + "。\n結算後這些行程會歸入今日報表。")) return;
+    setBusy(true);
+    try {
+      const trips = completed.map((b) => ({
+        id: b.id, name: b.name, phone: b.phone, serviceType: b.serviceType,
+        city: b.city, district: b.district, when: b.when, addr: b.addr || "",
+        flight: b.flight || "", pax: b.pax || "", note: b.note || "",
+        price: b.price || 0, completedAt: b.completedAt || null,
+      }));
+      const byCityM = {}, byTypeM = {};
+      trips.forEach((t) => { byCityM[t.city] = (byCityM[t.city] || 0) + t.price; byTypeM[t.serviceType] = (byTypeM[t.serviceType] || 0) + 1; });
+      const cid = await addCloseout({
+        openedAt: shiftOpenAt || null, closedAt: Date.now(),
+        count: trips.length, revenue: trips.reduce((s, t) => s + t.price, 0),
+        trips, byCity: byCityM, byType: byTypeM,
+      });
+      await Promise.all(completed.map((b) => patchBooking(b.id, { settledIn: cid })));
+      await saveShift(null);
+    } catch (e) { alert("關帳失敗，請檢查網路後再試。"); }
+    setBusy(false);
+  };
+
   return (
     <div>
+      <div style={{ background: "#fff", border: "1px solid " + C.line, borderLeft: "5px solid " + (isOpen ? C.green : C.gray), borderRadius: 14, padding: "16px 18px", marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 10, height: 10, borderRadius: "50%", background: isOpen ? C.green : C.gray, display: "inline-block" }} />
+            <b style={{ color: C.navy, fontSize: 16 }}>{isOpen ? "營業中（已開帳）" : "目前已關帳"}</b>
+          </div>
+          <div style={{ fontSize: 12.5, color: C.gray, marginTop: 4 }}>
+            {isOpen ? "開帳時間：" + fmtTime(shiftOpenAt) : "按「開帳」開始新的一班，當天結束後按「關帳」產生整日報表"}
+          </div>
+        </div>
+        {isOpen
+          ? <button onClick={closeShift} disabled={busy} style={{ padding: "11px 22px", background: busy ? "#5a6788" : C.red, color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer" }}>{busy ? "處理中…" : "🧾 關帳結算"}</button>
+          : <button onClick={openShift} disabled={busy} style={{ padding: "11px 22px", background: busy ? "#5a6788" : C.green, color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer" }}>{busy ? "處理中…" : "🟢 開帳"}</button>}
+      </div>
+
+      <div style={{ fontSize: 14, fontWeight: 800, color: C.navy, margin: "0 0 10px" }}>本班即時統計　<span style={{ fontSize: 12, fontWeight: 600, color: C.gray }}>（尚未關帳的行程）</span></div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
         <div style={{ background: C.navy, borderRadius: 14, padding: "18px 20px", color: "#fff" }}>
           <div style={{ fontSize: 13, color: "#aab8d4" }}>已完成營收</div><div style={{ fontSize: 30, fontWeight: 800 }}>{NT(earned)}</div>
@@ -445,6 +564,13 @@ function Stats({ all }) {
           </div>
         )}
       </div>
+
+      <div style={{ marginTop: 22 }}>
+        <h4 style={{ margin: "0 0 12px", color: C.navy, fontSize: 16 }}>📚 歷史日結報表</h4>
+        {(!closeouts || closeouts.length === 0)
+          ? <div style={{ background: "#fff", borderRadius: 14, padding: 28, textAlign: "center", color: C.gray, border: "1px solid " + C.line, fontSize: 14 }}>尚無關帳紀錄，關帳後會在這裡產生整日報表。</div>
+          : closeouts.map((co) => <CloseoutCard key={co.id} co={co} />)}
+      </div>
     </div>
   );
 }
@@ -453,6 +579,7 @@ function Stats({ all }) {
 function App() {
   const [tab, setTab] = useState("book");
   const [all, setAll] = useState([]);
+  const [closeouts, setCloseouts] = useState([]);
   const [settings, setSettings] = useState({ pin: DEFAULT_PIN });
   const [ready, setReady] = useState(!!window.fb);
   const [err, setErr] = useState(window.fbError || null);
@@ -473,7 +600,8 @@ function App() {
     if (!ready) return;
     const u1 = subBookings(setAll);
     const u2 = subSettings(setSettings);
-    return () => { u1 && u1(); u2 && u2(); };
+    const u3 = subCloseouts(setCloseouts);
+    return () => { u1 && u1(); u2 && u2(); u3 && u3(); };
   }, [ready]);
 
   const currentPin = settings.pin || DEFAULT_PIN;
@@ -534,7 +662,7 @@ function App() {
           </div>
         )}
         {tab === "driver" && unlocked && <Driver all={all} currentPin={currentPin} />}
-        {tab === "stats" && unlocked && <Stats all={all} />}
+        {tab === "stats" && unlocked && <Stats all={all} closeouts={closeouts} shiftOpenAt={settings.shiftOpenAt} />}
       </div>
     </div>
   );
